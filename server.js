@@ -5,6 +5,7 @@ const canvas = require('canvas');
 
 
 require('dotenv').config();
+console.log(process.env);
 const accesstok = process.env.EMOJI_API_KEY;
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -161,7 +162,6 @@ app.post('/register', (req, res) => {
 
 app.post('/login', (req, res) => {
     loginUser(req, res);
-    res.render('loginRegister', { loginError: "User not found" });
 });
 
 app.get('/logout', (req, res) => {
@@ -211,7 +211,6 @@ function findUserByUsername(username) {
     }
     return undefined;
 }
-
 function findUserById(userId) {
     for (var i = 0; i < users.length; i++) {
         if (users[i].id == userId) {
@@ -251,7 +250,7 @@ function registerUser(req, res) {
         res.render('loginRegister', { regError: "User already exists" });
         return;
     }
-
+    
     addUser(req.body.register_username);
     console.log("Registration successful: ", req.body.register_username);
     res.redirect('/login');
@@ -259,19 +258,18 @@ function registerUser(req, res) {
 
 // Function to login a user
 function loginUser(req, res) {
-    const user = users.some(user => user.username === req.body.login_username);
+    const user = findUserByUsername(req.body.login_username);
+    if (user === undefined) {
+        res.redirect('/login');
+    } else {
+        req.session.userId = user.id;
+        res.locals.userId = user.id;
+        req.session.loggedIn = true;
+        res.locals.loggedIn = true;
+        console.log("Logged in as: ", user.id);
 
-    if (!user) {
-        res.render('loginRegister', { loginError: "User does not exist" });
-        return;
+        res.redirect('/');
     }
-
-    req.session.userId = user.id;
-    res.locals.userId = user.id;
-    req.session.loggedIn = true;
-    res.locals.loggedIn = true;
-    console.log("Logged in as: ", user.id);
-    res.redirect('/');
 }
 
 // Function to logout a user
