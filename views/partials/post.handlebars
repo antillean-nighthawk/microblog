@@ -1,0 +1,65 @@
+{{! Partial for a single post }}
+<div class="post">
+    <div class="post-content preserve-newlines">
+        <!-- the post -->
+        <div class="col-md-5 mx-auto">
+            <div class="row g-0 border rounded overflow-hidden flex-md-row mb-4 shadow-sm position-relative">
+                    <div class="col-md-auto p-4 d-flex flex-column">
+                        <div class="post-avatar"><img src="/avatar/{{this.username}}" alt="{{this.username}}'s avatar"></div>
+                        <strong class="d-inline-block mb-2 text-success">{{this.username}}</strong>
+                    </div>
+
+                    <div class="col-md-auto p-4 d-flex flex-column">
+                        <div class="mb-1 text-muted">{{this.timestamp}}</div>
+                        <p class="lead">{{this.title}}</p>
+                        <p class="mb-auto">{{this.content}}</p>
+                    </div>
+                    
+                    <div class="post-status-bar d-grid d-md-flex">
+                        {{#ifCond user this.userid}}
+                            <button type="button" onclick="handleDeleteClick(event)" id="delete-button" class="col delete-button btn btn-outline-danger" delete-id="{{id}}">
+                                Delete <i class="fas fa-trash-alt"></i>
+                            </button>
+                        {{else}}
+                            <button type="button" onclick="handleLikeClick(event)" id="like-button" class="col like-button btn btn-outline-danger" like-id="{{id}}">
+                                Likes: {{this.likes}} <i class="fas fa-heart"></i>
+                            </button>
+                        {{/ifCond}}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function handleLikeClick(event) {
+        const postId = event.currentTarget.getAttribute('like-id');
+        const likeUrl = '/like/' + postId;
+
+        fetch(likeUrl, { method: "POST", })
+	    .then(res => res.json())
+        .then(json => {
+            console.log(json);
+        })
+        .catch(err => console.error('error:' + err));
+
+    }
+
+    function handleDeleteClick(event) {
+        const deleteId = event.target.getAttribute('delete-id');
+        const deleteUrl = '/delete/' + deleteId;
+        console.log("calling", deleteUrl);
+
+        fetch(deleteUrl, { method: "POST", })
+	    .then(res => res.json())
+        .then(data => {
+            console.log(data);
+            var likesCountSpan = document.getElementById("like-button");
+            likesCountSpan.innerText = data.likes; // Assuming your server returns the updated likes count
+            likeButton.setAttribute("data-likes", data.likes); // Update the data-likes attribute for future reference
+        })
+        .catch(err => console.error('error:' + err));   
+     
+    }    
+
+</script>

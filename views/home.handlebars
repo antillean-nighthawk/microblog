@@ -1,0 +1,161 @@
+{{! Use the main layout }}
+{{!< main }}
+
+{{! New Post Submission Form }}
+<section class="content-container">
+    {{#if loggedIn}}
+        <!-- show the create post form when logged in -->
+        <section class="post-form"> 
+                <div class="mx-auto">
+                    <div class="row g-0 overflow-hidden flex-md-row mb-4 h-md-250 position-relative">
+                        <div class="col p-4 d-flex flex-column position-static">
+                            <header><h2 class="display-5 text-center">Create a New Post</h2></header>
+                            <form action="/posts" method="POST" class="col p-4 d-flex flex-column position-static">
+                                <div class="form-group p-3">
+                                    <label for="title">Title</label>
+                                    <input type="text" class="form-control" id="title" name="title" placeholder="Title">
+                                </div>
+
+                                <div class="form-group p-3">
+                                    <label for="content">Content</label>
+                                    <textarea name="content" class="form-control" id="content" name="content" placeholder="Write your post here..." required></textarea>
+                                </div>
+
+                                <div class="form-group p-3">
+                                    <button type="button" class="emoji-button btn btn-outline-warning" onclick="toggleEmojiPanel()">Emoji selection 😀</button>
+                                    <button type="submit" class="post-button btn btn-success">Post</button>
+                                </div>
+                            </form>
+
+                            <div id="emoji-container" class="emoji-panel form-group p-3 col-5" style="display: none;">
+                                <!-- input field for the emoji search, use oninput="searchEmojis() -->
+                                <input type="text" oninput="searchEmojis()" class="form-control" id="emoji-search" name="emoji-search" placeholder="search for an emoji">
+                                <!-- a div, id = "emoji-grid" -->
+                                <div id="emoji-grid"></div>
+                            </div>
+        
+                        </div>
+                    </div>
+                </div>
+
+
+        </section>
+    {{/if}}
+
+    <section class="posts-list">
+        <!-- recent posts -->
+        {{#if posts.length}}
+        <ul>
+            {{#each posts}}
+                <!-- you have to pass the user in to posts and this is the syntax -->
+                {{> post this user=../user}}            
+            {{/each}}
+        </ul>
+        {{else}}
+            <!-- no posts, oh no, what now? -->
+            <p>No posts found >:(</p>
+            <p>Go touch some plants !!</p>
+        {{/if}}
+    </section>
+</section>
+
+
+{{! JavaScript for Emoji Integration }}
+<script>
+require('dotenv').config();
+console.log(process.env);
+const accesstok = process.env.EMOJI_API_KEY;
+
+
+/*
+ You want to show a subset of the emojis. About 200. However,
+ you also want the user to be able to search all emojis,
+ so, put them in this array when the array is empty so 
+ that you have them.
+*/
+let allEmojis = [];  // Global list to hold all emojis
+
+function toggleEmojiPanel() {
+
+    const container = document.getElementById('emoji-container');
+    container.style.display = container.style.display === 'none' ? 'block' : 'none';
+
+    if(container.style.display === 'block' && allEmojis.length == 0){
+        // go "Fetch" you some emojis and show them off with displayEmojies
+        const allEmojisUrl = "https://emoji-api.com/emojis?access_key=" +
+                              accesstok;
+        fetch(allEmojisUrl)
+        .then(response => response.json())
+        .then(data => {
+            console.log("data is", data);
+            allEmojis = data;
+            console.log("emojis are", allEmojis);
+            displayEmojis(allEmojis);
+        })
+        .catch(error => {
+            console.error("Couldn't fetch emojis", error);
+            alert("Failed to fetch emojis, try again later.");
+        })
+    }
+}
+
+function displayEmojis(emojis,limit=200) {
+    const container = document.getElementById('emoji-grid');
+    container.innerHTML = '';  // Clear previous results
+    if (Array.isArray(emojis) && emojis.length > 0) {
+        emojis.slice(0, limit).forEach(emoji => {
+            const emojiElement = document.createElement('span');
+            emojiElement.textContent = emoji.character;
+            emojiElement.title = emoji.slug;  // Showing the emoji name on hover
+            emojiElement.style.cursor = 'pointer';
+            emojiElement.onclick = () => insertEmoji(emoji.character);
+            container.appendChild(emojiElement);
+        });
+    } else {
+        container.textContent = 'No emojis found. Try a different search!';
+    }
+}
+
+function searchEmojis() {
+
+    const searchTerm = document.getElementById('emoji-search').value.toLowerCase();
+    // array.filter takes a predicate
+    // use string.includes. 
+
+    // const filteredEmojis = allEmojis.filter(...);
+    // displayEmojis(filteredEmojis);
+    const url = "https://emoji-api.com/emojis?search=" + searchTerm + 
+                "&access_key=" + accesstok;
+
+    fetch(url)
+    .then(response => response.json())
+    .then(data => {
+        displayEmojis(data);
+    })
+    .catch(error => {
+        console.error("Couldn't fetch emojis", error);
+        alert("Failed to fetch emojis, try again later.");
+    })
+    
+    
+}
+
+function insertEmoji(emoji) {
+    // put an emoji on a form somehow. 
+    var textarea = document.getElementById('content'); // Get the textarea element
+    var currentContent = textarea.value; // Get the current content of the textarea
+    var cursorPosition = textarea.selectionStart; // Get the cursor position
+
+    // Insert the emoji at the cursor position
+    var newContent = currentContent.substring(0, cursorPosition) + 
+                     emoji + currentContent.substring(cursorPosition);
+
+    // Update the textarea value with the new content
+    textarea.value = newContent;
+
+    // do this when you're doing getting the emoji on the form
+    //
+    textarea.focus();  // Keep focus on the textarea
+}
+</script>
+
