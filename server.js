@@ -1,18 +1,56 @@
 const express = require('express');
 const expressHandlebars = require('express-handlebars');
 const session = require('express-session');
-const canvas = require('canvas');
-
-
-require('dotenv').config();
-console.log(process.env);
-const accesstok = process.env.EMOJI_API_KEY;
+const sqlite = require('sqlite');
+const sqlite3 = require('sqlite3');
+const passport = require('passport');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const dotenv = require('dotenv');
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // Configuration and Setup
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// Load environment variables from .env file
+dotenv.config();
+const CLIENT_ID = process.env.CLIENT_ID;
+const CLIENT_SECRET = process.env.CLIENT_SECRET;
+const accesstok = process.env.EMOJI_API_KEY;
+
 const app = express();
 const PORT = 3000;
+const dbFileName = 'microblog.db';
+
+// oauth flow structure
+const GOOGLE_LOGIN = `https://accounts.google.com/o/oauth2/auth?response_type=code&client_id=${CLIENT_ID}&redirect_uri=http://localhost:3000/auth/google/callback&scope=https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile&prompt=consent`;
+
+// set up db conection
+async function connectToDatabase() {
+    try {
+        const db = await sqlite.open({ filename: dbFileName, driver: sqlite3.Database });
+        console.log('Connected to the database successfully.');
+        return db;
+    } catch (error) {
+        console.error('Error connecting to the database:', error);
+        throw error; // Rethrow the error for the caller to handle
+    }
+}
+
+// Configure passport
+passport.use(new GoogleStrategy({
+    clientID: CLIENT_ID,
+    clientSecret: CLIENT_SECRET,
+    callbackURL: `http://localhost:${PORT}/auth/google/callback`
+}, (token, tokenSecret, profile, done) => {
+    return done(null, profile);
+}));
+
+passport.serializeUser((user, done) => {
+    done(null, user);
+});
+
+passport.deserializeUser((obj, done) => {
+    done(null, obj);
+});
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -39,9 +77,6 @@ const PORT = 3000;
             {{/ifCond}}
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
-
-// Set up Handlebars view engine with custom helpers
-//
 app.engine(
     'handlebars',
     expressHandlebars.engine({
@@ -85,14 +120,8 @@ app.use((req, res, next) => {
 
     res.locals.loggedIn = req.session.loggedIn || false;
     res.locals.userId = req.session.userId || '';
-
-    if (res.locals.userId) {
-        res.locals.userName = findUserById(res.locals.userId).username;
-        res.locals.userPfp = findUserById(res.locals.userId).avatar_url;
-    } else {
-        res.locals.userName = '';
-        res.locals.userPfp = undefined;
-    }
+    res.locals.userName = req.session.userName || '';
+    res.locals.userPfp = req.session.userPfp || undefined;
 
     next();
 });
@@ -109,10 +138,15 @@ app.use(express.json());                            // Parse JSON bodies (as sen
 // We pass the posts and user variables into the home
 // template
 //
-app.get('/', (req, res) => {
-    const posts = getPosts();
-    const user = getCurrentUser(req) || {};
-    res.render('home', { posts, user });
+app.get('/', async (req, res) => { // Make the route handler asynchronous
+    try {
+        const posts = await getPosts(); // Call getPosts() which returns a promise
+        const user = getCurrentUser(req) || {};
+        res.render('home', { posts, user });
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).send('Could not fetch homepage');
+    }
 });
 
 // Register GET route is used for error response from registration
@@ -137,48 +171,104 @@ app.get('/post/:id', (req, res) => {
     res.render('post', { post, user });
 });
 
-app.post('/posts', (req, res) => {
-    const curUser = findUserById(req.session.userId);
-    addPost(req.body.title, req.body.content, curUser.username, req.session.userId);
-    res.redirect('/');
+app.post('/posts', async (req, res) => {
+    try {
+        await addPost(req);
+        res.redirect('/');
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).send('New post failed');
+    }
 });
 
-app.post('/like/:id', (req, res) => {
-    const likedPost = updatePostLikes(req, res);
-    res.json(likedPost);
+app.post('/like/:id', async (req, res) => {
+    try {
+        const updatedLikes = await updatePostLikes(req, res);
+        res.send({ likes: updatedLikes }); // Return updated like count
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).send('New post failed');
+    }
 });
 
-app.get('/profile', isAuthenticated, (req, res) => {
-    if (isAuthenticated) { renderProfile(req, res); }
+app.get('/profile', isAuthenticated, async (req, res) => {
+    try {
+        if (isAuthenticated) { 
+            try {
+                await renderProfile(req, res); 
+            } catch (error) {
+                console.error('Error:', error);
+                res.status(500).send('Could not render profile page');
+            }
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).send('Could not serve profile page');
+    }
 });
 
 app.get('/avatar/:username', (req, res) => {
     handleAvatar(req, res);
 });
 
-app.post('/register', (req, res) => {
-    registerUser(req, res);
-});
-
-app.post('/login', (req, res) => {
-    loginUser(req, res);
-});
+app.post('/register', async (req, res) => {
+    try {
+        await registerUser(req, res);
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).send('Could not register');
+    }});
 
 app.get('/logout', (req, res) => {
     logoutUser(req, res);
 });
 
-app.post('/delete/:id', isAuthenticated, (req, res) => {
-    const curUser = findUserById(req.session.userId);
-    deletePostById(req.params.id, curUser.username);
-    const posts = getPosts();
-    res.render('home', { posts, curUser });
+app.post('/delete/:id', isAuthenticated, async (req, res) => {
+    try {
+        if (isAuthenticated) {
+            await deletePostById(req);
+            res.status(200).send({ success: true }); // Sending a success response
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).send('Could not delete post');
+    }
 });
+
+// oauth routes
+app.get('/auth/google', (req, res) => {
+    res.redirect(GOOGLE_LOGIN);
+});
+
+app.get('/auth/google/callback', async (req, res) => {
+    if (!req.query.googleId) { // If Google ID is not provided, return error
+        return res.status(400).send('Google ID is missing in the request');
+    }
+
+    const hashedGoogleId = hash(req.query.googleId);
+    const existingUser = await findUserByHash(hashedGoogleId);
+    if (existingUser) {
+        await loginUser(req, res);
+    } else {
+        res.redirect('/registerUsername');
+    }
+});
+
+// TODO:
+app.get('/registerUsername', (req, res) => {
+    res.render('registerUsername', { username });
+});
+
+app.post('/registerUsername', (req, res) => {
+    res.render('registerUsername', { username });
+});
+
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // Server Activation
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+connectToDatabase(); // init db async
 
-app.listen(PORT, () => {
+app.listen(PORT, () => { // then init server
     console.log(`Server is running on http://localhost:${PORT}`);
 });
 
@@ -186,136 +276,148 @@ app.listen(PORT, () => {
 // Support Functions and Variables
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-// Example data for posts and users
-let posts = [
-    { id: 1, title: 'Sample Post', content: 'This is a sample post.', username: 'SampleUser', timestamp: '2024-01-01 10:00', likes: 0, userid: 1 },
-    { id: 2, title: 'Another Post', content: 'This is another sample post.', username: 'AnotherUser', timestamp: '2024-01-02 12:00', likes: 0, userid: 2 },
-    { id: 3, title: 'New Post', content: 'This is a new post.', username: 'NewUser', timestamp: '2024-01-03 14:00', likes: 0, userid: 3 },
-    { id: 4, title: 'Exciting Post', content: 'This is an exciting post.', username: 'ExcitingUser', timestamp: '2024-01-04 16:00', likes: 0, userid: 4 },
-    { id: 5, title: 'Interesting Post', content: 'This is an interesting post.', username: 'InterestingUser', timestamp: '2024-01-05 18:00', likes: 0, userid: 5 }
-];
-let users = [
-    { id: 1, username: 'SampleUser', avatar_url: undefined, memberSince: '2024-01-01 08:00' },
-    { id: 2, username: 'AnotherUser', avatar_url: undefined, memberSince: '2024-01-02 09:00' },
-    { id: 3, username: 'NewUser', avatar_url: undefined, memberSince: '2024-01-03 10:00' },
-    { id: 4, username: 'ExcitingUser', avatar_url: undefined, memberSince: '2024-01-04 11:00' },
-    { id: 5, username: 'InterestingUser', avatar_url: undefined, memberSince: '2024-01-05 12:00' }
-];
-
 // Functions to find a user
-function findUserByUsername(username) {
-    for (var i = 0; i < users.length; i++) {
-        if (users[i].username == username) {
-            return users[i];
-        }
+async function findUserByUsername(username) {
+    try {
+        const myDb = await connectToDatabase();
+        const user = await myDb.get('SELECT * FROM users WHERE username = ?', [username]);
+        return user !== undefined ? user : undefined;
+    } catch (error) {
+        console.error('Error finding user by username:', error);
+        throw error; // Rethrow the error for the caller to handle
     }
-    return undefined;
 }
-function findUserById(userId) {
-    for (var i = 0; i < users.length; i++) {
-        if (users[i].id == userId) {
-            return users[i];
-        }
+async function findUserById(userId) {
+    try {
+        const myDb = await connectToDatabase();
+        const user = await myDb.get('SELECT * FROM users WHERE id = ?', [userId]);
+        return user !== undefined ? user : undefined;
+    } catch (error) {
+        console.error('Error finding user by username:', error);
+        throw error; // Rethrow the error for the caller to handle
     }
-    return undefined;
+}
+async function findUserByHash(hash) {
+    try {
+        const myDb = await connectToDatabase();
+        const user = await myDb.get('SELECT * FROM users WHERE hashedGoogleId = ?', [hash]);
+        return user !== undefined ? user : undefined;
+    } catch (error) {
+        console.error('Error finding user by hash:', error);
+        throw error; // Rethrow the error for the caller to handle
+    }
 }
 
 // Function to add a new user
-function addUser(username) {
-    // Generate a unique ID for the new user
-    const newUserId = users.length > 0 ? users[users.length - 1].id + 1 : 1;
-
-    const newUser = {
-        id: newUserId,
-        username: username,
-        avatar_url: undefined,
-        memberSince: new Date().toISOString()
-    };
-
-    users.push(newUser);
-    return newUser;
+async function addUser(username) {
+    const now = new Date().toISOString()
+    try {
+        const myDb = await connectToDatabase();
+        await myDb.run(
+            'INSERT INTO users (username, hashedGoogleId, avatar_url, memberSince) VALUES (?, ?, ?, ?)',
+            [username, 392458049, undefined, now]
+        );
+        console.log(`User '${username}' added successfully.`);
+    } catch (error) {
+        console.error('Error adding user to the database:', error);
+        throw error; // Rethrow the error for the caller to handle
+    }
 }
 
 // Middleware to check if user is authenticated
 function isAuthenticated(req, res, next) {
     if (req.session.userId) {
         console.log("User authenticated: ", req.session.userId);
-        next();
+        next(); 
     } else { res.redirect('/login'); }
 }
 
 // Function to register a user
-function registerUser(req, res) {
-    if (users.some(user => user.username === req.body.register_username)) {
-        res.render('loginRegister', { regError: "User already exists" });
+async function registerUser(req, res) {
+    try {
+        const user = await findUserByUsername(req.body.register_username);
+        if (user) {
+            console.log("Registration failed");
+            req.query.error = "User registration failed.";
+            res.render('loginRegister', { regError: req.query.error });
+            return;
+        } 
+    } catch (error) {
+        req.query.error = "User registration failed.";
+        res.render('loginRegister', { regError: req.query.error });
         return;
     }
-    
-    addUser(req.body.register_username);
+
+    await addUser(req.body.register_username);
     console.log("Registration successful: ", req.body.register_username);
     res.redirect('/login');
 }
 
 // Function to login a user
-function loginUser(req, res) {
-    const user = findUserByUsername(req.body.login_username);
-    if (user === undefined) {
-        res.redirect('/login');
-    } else {
-        req.session.userId = user.id;
-        res.locals.userId = user.id;
-        req.session.loggedIn = true;
-        res.locals.loggedIn = true;
-        console.log("Logged in as: ", user.id);
+async function loginUser(req, res) {
+    req.session.userId = user.id;
+    req.session.loggedIn = true;
+    req.session.userName = user.username;
+    req.session.userPfp = user.avatar_url;
 
-        res.redirect('/');
-    }
+    console.log("Logged in as: ", user.id);
+    res.redirect("/home");
 }
 
 // Function to logout a user
 function logoutUser(req, res) {
     req.session.userId = '';
-    res.locals.userId = '';
     req.session.loggedIn = false;
-    res.locals.loggedIn = false;
+    req.session.userName = '';
+    req.session.userPfp = undefined;
+
     console.log("Logged out successfully");
     res.redirect('/');
 }
 
 // Function to render the profile page
-function renderProfile(req, res) {
-    const userObject = findUserById(req.session.userId);
-    const userPosts = posts.filter(post => post.username === userObject.username);
-    res.render('profile', { userObject, userPosts });
+async function renderProfile(req, res) {
+    try {
+        const myDb = await connectToDatabase();
+        const userObject = await findUserById(getCurrentUser(req));
+        const userPosts = await myDb.all(
+            'SELECT * FROM posts WHERE username = ?', 
+            [userObject.username]
+        );
+        console.log(`Posts for '${userObject.username}' found successfully.`);
+        res.render('profile', { userObject, userPosts });
+    } catch (error) {
+        console.error(`Error finding user '${userObject.username}':`, error);
+        throw error; // Rethrow the error for the caller to handle
+    }
 }
 
 // Function to update post likes
-function updatePostLikes(req, res) {
-    for (var i = 0; i < posts.length; i++) {
-        if (posts[i].id == req.params.id) {
-            posts[i].likes++;
-            console.log('liked this post', posts[i].likes);
-            return posts[i];
-        }
+async function updatePostLikes(req, res) {
+    try {
+        const myDb = await connectToDatabase();
+        const postToLike = await getPostById(req.params.id);
+        const newLikeCount = postToLike.likes + 1;
+        await myDb.run(
+            'UPDATE posts SET likes = ? WHERE id = ?',
+            [newLikeCount, req.params.id]
+        );
+        console.log(`Likes for post '${req.params.id}' incremented successfully.`);
+        return newLikeCount;
+    } catch (error) {
+        console.error(`Error liking post '${req.params.id}':`, error);
+        throw error; // Rethrow the error for the caller to handle
     }
 }
 
 // Function to handle avatar generation and serving
 function handleAvatar(req, res) {
-    // Extract username from request parameters
     const { username } = req.params;
-
-    // Get the first letter of the username
     const firstLetter = username.charAt(0).toUpperCase(); // Ensure it's uppercase for consistency
-
-    // Generate avatar image data URL using generateAvatar function
     const avatarDataURL = generateAvatar(firstLetter);
 
-    // Set response headers to indicate image content
     res.set('Content-Type', 'image/png');
     res.set('Cache-Control', 'public, max-age=86400');
-
-    // Send the image as a response
     res.send(Buffer.from(avatarDataURL.split(',')[1], 'base64'));
 }
 
@@ -325,34 +427,34 @@ function getCurrentUser(req) {
 }
 
 // Function to get all posts, sorted by latest first
-function getPosts() {
-    return posts.slice().reverse();
+async function getPosts() {
+    try {
+        const myDb = await connectToDatabase(); // Wait for the database connection to be initialized
+        const posts = await myDb.all('SELECT * FROM posts ORDER BY id DESC');
+        console.log(`Posts fetched successfully.`);
+        return posts;
+    } catch (error) {
+        console.error('Error fetching posts:', error);
+        throw error; // Rethrow the error for the caller to handle
+    }
 }
 
 // Function to add a new post
-function addPost(title, content, user, uid) {
-    // Generate a unique ID for the new post
-    const id = posts.length > 0 ? posts[posts.length - 1].id + 1 : 1;
+async function addPost(req) {
+    const now = new Date().toISOString();
+    const cur_user = await findUserById(getCurrentUser(req));
 
-    // Get the current timestamp
-    const timestamp = new Date().toISOString();
-
-    // Create the new post object
-    const newPost = {
-        id: id,
-        title: title,
-        content: content,
-        username: user,
-        timestamp: timestamp,
-        likes: 0,
-        userid: uid,
-    };
-
-    // Add the new post to the posts array
-    posts.push(newPost);
-
-    // Optionally, return the new post
-    return newPost;
+    try {
+        const myDb = await connectToDatabase();
+        await myDb.run(
+            'INSERT INTO posts (title, content, username, timestamp, likes) VALUES (?, ?, ?, ?, ?)',
+            [req.body.title, req.body.content, cur_user.username, now, 0]
+        );
+        console.log(`Post '${req.body.title}' added successfully.`);
+    } catch (error) {
+        console.error('Error adding post to the database:', error);
+        throw error; // Rethrow the error for the caller to handle
+    }
 }
 
 function generateAvatar(letter, width = 100, height = 100) {
@@ -382,25 +484,28 @@ function generateAvatar(letter, width = 100, height = 100) {
     return canvas.toDataURL('image/png');
 }
 
-function getPostById(id) {
-    for (var i = 0; i < posts.length; i++) {
-        if (posts[i].id == id) {
-            return posts[i];
-        }
+async function getPostById(id) {
+    try {
+        const myDb = await connectToDatabase();
+        const post = await myDb.get('SELECT * FROM posts WHERE id = ?', [id]);
+        return post;
+    } catch (error) {
+        console.error('Error finding user by username:', error);
+        throw error; // Rethrow the error for the caller to handle
     }
 }
 
-function deletePostById(post_id, cur_user) {
-    postInQuestion = getPostById(post_id);
-
-    if (cur_user === postInQuestion.username) {
-        const index = posts.indexOf(postInQuestion);
-
-        if (index > -1) { // only splice array when item is found
-            posts.splice(index, 1); // 2nd parameter means remove one item only
-            console.log("deletion success");
+async function deletePostById(req) {
+    try {
+        const myDb = await connectToDatabase();
+        const find_post = await getPostById(req.params.id);
+        const find_user = await findUserById(getCurrentUser(req));
+        if (find_post.username === find_user.username) {
+            await myDb.run( `DELETE FROM posts WHERE id = ?`, [req.params.id]);
+            console.log(`Post deleted successfully.`);
         }
+    } catch (error) {
+        console.error('Error deleting post from dbFileName:', error);
+        throw error; // Rethrow the error for the caller to handle
     }
-
-    return posts;
 }

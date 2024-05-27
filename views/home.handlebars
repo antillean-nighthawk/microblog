@@ -48,7 +48,7 @@
         <ul>
             {{#each posts}}
                 <!-- you have to pass the user in to posts and this is the syntax -->
-                {{> post this user=../user}}            
+                {{> post this cur_user=../userName}}            
             {{/each}}
         </ul>
         {{else}}

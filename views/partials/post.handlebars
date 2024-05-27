@@ -16,13 +16,13 @@
                     </div>
                     
                     <div class="post-status-bar d-grid d-md-flex">
-                        {{#ifCond user this.userid}}
+                        {{#ifCond cur_user this.username}}
                             <button type="button" onclick="handleDeleteClick(event)" id="delete-button" class="col delete-button btn btn-outline-danger" delete-id="{{id}}">
                                 Delete <i class="fas fa-trash-alt"></i>
                             </button>
                         {{else}}
                             <button type="button" onclick="handleLikeClick(event)" id="like-button" class="col like-button btn btn-outline-danger" like-id="{{id}}">
-                                Likes: {{this.likes}} <i class="fas fa-heart"></i>
+                                <span id="like-count-{{id}}">Likes: {{this.likes}} </span><i class="fas fa-heart"></i>
                             </button>
                         {{/ifCond}}
                 </div>
@@ -40,6 +40,10 @@
 	    .then(res => res.json())
         .then(json => {
             console.log(json);
+            const likeCountElement = document.querySelector(`#like-count-${postId}`);
+            if (likeCountElement) {
+                likeCountElement.textContent = "Likes: " + json.likes + " ";
+            }
         })
         .catch(err => console.error('error:' + err));
 
@@ -51,14 +55,15 @@
         console.log("calling", deleteUrl);
 
         fetch(deleteUrl, { method: "POST", })
-	    .then(res => res.json())
-        .then(data => {
-            console.log(data);
-            var likesCountSpan = document.getElementById("like-button");
-            likesCountSpan.innerText = data.likes; // Assuming your server returns the updated likes count
-            likeButton.setAttribute("data-likes", data.likes); // Update the data-likes attribute for future reference
+        .then(res => {
+            if (res.ok) {
+                // Reload the page upon successful deletion
+                window.location.reload();
+            } else {
+                throw new Error('Failed to delete post');
+            }
         })
-        .catch(err => console.error('error:' + err));   
+        .catch(err => console.error('Error:', err));
      
     }    
 
