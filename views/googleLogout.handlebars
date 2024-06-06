@@ -1,23 +1,26 @@
 {{!< main }}
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Logging Out</title>
-
-    <script>
-        window.onload = function() {
-            const iframe = document.createElement('iframe');
-            iframe.style.display = 'none';
-            iframe.src = 'https://accounts.google.com/logout';
-            iframe.onload = function() {
-                window.location.href = '/logoutCallback';
-            };
-            document.body.appendChild(iframe);
+<!-- Google logout 
+<script>
+    window.onload = function() {
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.src = 'https://accounts.google.com/logout';
+        iframe.onload = function() {
+            window.location.href = '/logoutCallback';
         };
-    </script>
-</head>
+        document.body.appendChild(iframe);
+    };
+</script>--->   
 
-<body>
-    <p>Logging out...</p>
-</body>
+<!-- Actual logout Page -->
+
+<section class="googleLogout">
+    <div class="container m-3 p-4 text-center">
+        <i class="fas fa-check-circle check-icon"></i>
+        <h1 class="message">Logged out successfully :3</h1>
+        <a href="/" class="btn btn-link">Return to Homepage</a>
+    </div>
+
+    <!-- Font Awesome for check icon -->
+    <script src="https://kit.fontawesome.com/a076d05399.js"></script>
+</section>

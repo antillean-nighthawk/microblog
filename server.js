@@ -6,6 +6,7 @@ const sqlite3 = require('sqlite3');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const dotenv = require('dotenv');
+const crypto = require('crypto');
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // Configuration and Setup
@@ -54,27 +55,27 @@ passport.deserializeUser((obj, done) => {
 
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    Handlebars Helpers
+Handlebars Helpers
 
-    Handlebars helpers are custom functions that can be used within the templates 
-    to perform specific tasks. They enhance the functionality of templates and 
-    help simplify data manipulation directly within the view files.
+Handlebars helpers are custom functions that can be used within the templates 
+to perform specific tasks. They enhance the functionality of templates and 
+help simplify data manipulation directly within the view files.
 
-    In this project, two helpers are provided:
-    
-    1. toLowerCase:
-       - Converts a given string to lowercase.
-       - Usage example: {{toLowerCase 'SAMPLE STRING'}} -> 'sample string'
+In this project, two helpers are provided:
 
-    2. ifCond:
-       - Compares two values for equality and returns a block of content based on 
-         the comparison result.
-       - Usage example: 
-            {{#ifCond value1 value2}}
-                <!-- Content if value1 equals value2 -->
-            {{else}}
-                <!-- Content if value1 does not equal value2 -->
-            {{/ifCond}}
+1. toLowerCase:
+- Converts a given string to lowercase.
+- Usage example: {{toLowerCase 'SAMPLE STRING'}} -> 'sample string'
+
+2. ifCond:
+- Compares two values for equality and returns a block of content based on 
+the comparison result.
+- Usage example: 
+{{#ifCond value1 value2}}
+<!-- Content if value1 equals value2 -->
+{{else}}
+<!-- Content if value1 does not equal value2 -->
+{{/ifCond}}
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
 app.engine(
@@ -89,6 +90,9 @@ app.engine(
                     return options.fn(this);
                 }
                 return options.inverse(this);
+            },
+            json: function(object) {
+                return JSON.stringify(object);
             },
         },
     })
@@ -122,6 +126,7 @@ app.use((req, res, next) => {
     res.locals.userId = req.session.userId || '';
     res.locals.userName = req.session.userName || '';
     res.locals.userPfp = req.session.userPfp || undefined;
+    res.locals.hashedGoogleId = req.session.hashedGoogleId || '';
 
     next();
 });
@@ -129,6 +134,7 @@ app.use((req, res, next) => {
 app.use(express.static('public'));                  // Serve static files
 app.use(express.urlencoded({ extended: true }));    // Parse URL-encoded bodies (as sent by HTML forms)
 app.use(express.json());                            // Parse JSON bodies (as sent by API clients)
+
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // Routes
@@ -140,7 +146,7 @@ app.use(express.json());                            // Parse JSON bodies (as sen
 //
 app.get('/', async (req, res) => { // Make the route handler asynchronous
     try {
-        const posts = await getPosts(); // Call getPosts() which returns a promise
+        const posts = await getPosts(req); 
         const user = getCurrentUser(req) || {};
         res.render('home', { posts, user });
     } catch (error) {
@@ -149,14 +155,16 @@ app.get('/', async (req, res) => { // Make the route handler asynchronous
     }
 });
 
-// Register GET route is used for error response from registration
-app.get('/register', (req, res) => {
-    res.render('loginRegister', { regError: req.query.error });
-});
-
-// Login route GET route is used for error response from login
-app.get('/login', (req, res) => {
-    res.render('loginRegister', { loginError: req.query.error });
+// sorting
+app.get('/:order', async (req, res) => { // Make the route handler asynchronous
+    try {
+        const posts = await getPosts(req); 
+        const user = getCurrentUser(req) || {};
+        res.render('home', { posts, user });
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).send('Could not fetch homepage');
+    }
 });
 
 // Error route: render error page
@@ -167,7 +175,7 @@ app.get('/error', (req, res) => {
 // Additional routes that you must implement
 app.get('/post/:id', (req, res) => {
     const post = getPostById(req.params.id);
-    const user = findUserById(req.session.userId);
+    const user = findUserById(getCurrentUser(req));
     res.render('post', { post, user });
 });
 
@@ -191,36 +199,17 @@ app.post('/like/:id', async (req, res) => {
     }
 });
 
-app.get('/profile', isAuthenticated, async (req, res) => {
+app.get('/profile', async (req, res) => {
     try {
-        if (isAuthenticated) { 
-            try {
-                await renderProfile(req, res); 
-            } catch (error) {
-                console.error('Error:', error);
-                res.status(500).send('Could not render profile page');
-            }
-        }
+        await renderProfile(req, res);
     } catch (error) {
         console.error('Error:', error);
-        res.status(500).send('Could not serve profile page');
+        res.status(500).send('Could not render profile page');
     }
 });
 
 app.get('/avatar/:username', (req, res) => {
     handleAvatar(req, res);
-});
-
-app.post('/register', async (req, res) => {
-    try {
-        await registerUser(req, res);
-    } catch (error) {
-        console.error('Error:', error);
-        res.status(500).send('Could not register');
-    }});
-
-app.get('/logout', (req, res) => {
-    logoutUser(req, res);
 });
 
 app.post('/delete/:id', isAuthenticated, async (req, res) => {
@@ -235,32 +224,88 @@ app.post('/delete/:id', isAuthenticated, async (req, res) => {
     }
 });
 
+app.post('/unregister', isAuthenticated, async (req, res) => {
+    try {
+        if (isAuthenticated) {
+            await deleteUserById(req);
+            loggedIn = false;
+            res.redirect("/logout");
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).send('Could not delete post');
+    }
+});
+
 // oauth routes
-app.get('/auth/google', (req, res) => {
+
+// Route for initiating Google OAuth authentication
+app.get('/auth/google', async (req, res) => {
     res.redirect(GOOGLE_LOGIN);
 });
 
-app.get('/auth/google/callback', async (req, res) => {
-    if (!req.query.googleId) { // If Google ID is not provided, return error
-        return res.status(400).send('Google ID is missing in the request');
-    }
+// Callback route after successful authentication
 
-    const hashedGoogleId = hash(req.query.googleId);
+app.get('/auth/google/callback', async (req, res) => {
+    // Successful authentication, redirect to some other page
+    const hashedGoogleId = crypto.createHash('sha256').update(req.query.code).digest('hex');
+    req.session.hashedGoogleId = hashedGoogleId;
     const existingUser = await findUserByHash(hashedGoogleId);
+
     if (existingUser) {
         await loginUser(req, res);
+        console.log("logged in");
+        res.redirect('/');
+    }
+
+    res.render("registerUsername");
+});
+
+app.get('/registerUsername', async (req, res) => {
+    console.log("redirectjjjj");
+    console.log(req.originalUrl);
+    console.log(req.path);
+    console.log('username creation page');
+    res.render('registerUsername');
+});
+
+app.post('/registerUsername', async (req, res) => {
+    if (!req.session.hashedGoogleId) { // If Google ID is not provided, return error
+        res.redirect('error');
+        return;
+    }
+
+    let sanitizedUsername = (req.body.register_username).trim();
+    sanitizedUsername = escapeHtml(sanitizedUsername);
+   
+    const checkUsername = await findUserByUsername(sanitizedUsername);
+    if (checkUsername) {
+        req.query.error = "Sorry, username already exists :( Try again";
+        res.render('registerUsername', { regError: req.query.error });
     } else {
-        res.redirect('/registerUsername');
+        try {
+            await addUser(req);
+            await loginUser(req, res);
+            res.redirect('/');
+        } catch (error) {
+            console.error('Error:', error);
+            res.status(500).send('Could not register user.');
+        }
     }
 });
 
-// TODO:
-app.get('/registerUsername', (req, res) => {
-    res.render('registerUsername', { username });
+app.get('/logout', async (req, res) => {
+    try {
+        await logoutUser(req, res);
+        res.redirect('/googleLogout');
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).send('Could not logout user.');
+    }
 });
 
-app.post('/registerUsername', (req, res) => {
-    res.render('registerUsername', { username });
+app.get('/googleLogout', async (req, res) => {
+    res.render('googleLogout');
 });
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -309,17 +354,29 @@ async function findUserByHash(hash) {
 }
 
 // Function to add a new user
-async function addUser(username) {
+async function addUser(req) {
     const now = new Date().toISOString()
     try {
         const myDb = await connectToDatabase();
         await myDb.run(
             'INSERT INTO users (username, hashedGoogleId, avatar_url, memberSince) VALUES (?, ?, ?, ?)',
-            [username, 392458049, undefined, now]
+            [escapeHtml(req.body.register_username.trim()), req.session.hashedGoogleId, undefined, now]
         );
-        console.log(`User '${username}' added successfully.`);
+        console.log(`User '${req.body.register_username}' added successfully.`);
     } catch (error) {
         console.error('Error adding user to the database:', error);
+        throw error; // Rethrow the error for the caller to handle
+    }
+}
+
+// Function to delete a user
+async function deleteUserById(req) {
+    try {
+        const myDb = await connectToDatabase();
+        await myDb.run(`DELETE FROM users WHERE id = ?`, getCurrentUser(req));
+        console.log(`User deleted successfully.`);
+    } catch (error) {
+        console.error('Error deleting user from db:', error);
         throw error; // Rethrow the error for the caller to handle
     }
 }
@@ -328,51 +385,42 @@ async function addUser(username) {
 function isAuthenticated(req, res, next) {
     if (req.session.userId) {
         console.log("User authenticated: ", req.session.userId);
-        next(); 
-    } else { res.redirect('/login'); }
+        next();
+    } else { res.redirect('login'); }
 }
 
-// Function to register a user
-async function registerUser(req, res) {
-    try {
-        const user = await findUserByUsername(req.body.register_username);
-        if (user) {
-            console.log("Registration failed");
-            req.query.error = "User registration failed.";
-            res.render('loginRegister', { regError: req.query.error });
-            return;
-        } 
-    } catch (error) {
-        req.query.error = "User registration failed.";
-        res.render('loginRegister', { regError: req.query.error });
-        return;
-    }
-
-    await addUser(req.body.register_username);
-    console.log("Registration successful: ", req.body.register_username);
-    res.redirect('/login');
-}
-
-// Function to login a user
+// Function to login a user 
 async function loginUser(req, res) {
+    const user = await findUserByHash(req.session.hashedGoogleId);
+    console.log(user);
+    
     req.session.userId = user.id;
     req.session.loggedIn = true;
     req.session.userName = user.username;
     req.session.userPfp = user.avatar_url;
 
+    res.locals.userId = user.id;
+    res.locals.loggedIn = true;
+    res.locals.userName = user.username;
+    res.locals.userPfp = user.avatar_url;
+
     console.log("Logged in as: ", user.id);
-    res.redirect("/home");
 }
 
 // Function to logout a user
-function logoutUser(req, res) {
+async function logoutUser(req, res) {
     req.session.userId = '';
     req.session.loggedIn = false;
     req.session.userName = '';
     req.session.userPfp = undefined;
+    req.session.hashedGoogleId = '';
+
+    res.locals.userId = '';
+    res.locals.loggedIn = false;
+    res.locals.userName = '';
+    res.locals.userPfp = undefined;
 
     console.log("Logged out successfully");
-    res.redirect('/');
 }
 
 // Function to render the profile page
@@ -380,8 +428,9 @@ async function renderProfile(req, res) {
     try {
         const myDb = await connectToDatabase();
         const userObject = await findUserById(getCurrentUser(req));
+        console.log(userObject);
         const userPosts = await myDb.all(
-            'SELECT * FROM posts WHERE username = ?', 
+            'SELECT * FROM posts WHERE username = ?',
             [userObject.username]
         );
         console.log(`Posts for '${userObject.username}' found successfully.`);
@@ -427,10 +476,17 @@ function getCurrentUser(req) {
 }
 
 // Function to get all posts, sorted by latest first
-async function getPosts() {
+async function getPosts(req) {
     try {
         const myDb = await connectToDatabase(); // Wait for the database connection to be initialized
-        const posts = await myDb.all('SELECT * FROM posts ORDER BY id DESC');
+        let posts = await myDb.all('SELECT * FROM posts ORDER BY id DESC');
+
+        if (req.params.order == "oldestFirst") {
+            posts = await myDb.all('SELECT * FROM posts ORDER BY id ASC');
+        } else if (req.params.order == "mostLiked") {
+            posts = await myDb.all('SELECT * FROM posts ORDER BY likes DESC');
+        }
+
         console.log(`Posts fetched successfully.`);
         return posts;
     } catch (error) {
@@ -448,7 +504,7 @@ async function addPost(req) {
         const myDb = await connectToDatabase();
         await myDb.run(
             'INSERT INTO posts (title, content, username, timestamp, likes) VALUES (?, ?, ?, ?, ?)',
-            [req.body.title, req.body.content, cur_user.username, now, 0]
+            [escapeHtml(req.body.title), escapeHtml(req.body.content), cur_user.username, now, 0]
         );
         console.log(`Post '${req.body.title}' added successfully.`);
     } catch (error) {
@@ -501,11 +557,23 @@ async function deletePostById(req) {
         const find_post = await getPostById(req.params.id);
         const find_user = await findUserById(getCurrentUser(req));
         if (find_post.username === find_user.username) {
-            await myDb.run( `DELETE FROM posts WHERE id = ?`, [req.params.id]);
+            await myDb.run(`DELETE FROM posts WHERE id = ?`, [req.params.id]);
             console.log(`Post deleted successfully.`);
         }
     } catch (error) {
         console.error('Error deleting post from dbFileName:', error);
         throw error; // Rethrow the error for the caller to handle
     }
+}
+
+function escapeHtml(text) {
+    const map = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;'
+    };
+
+    return text.replace(/[&<>"']/g, function(m) { return map[m]; });
 }

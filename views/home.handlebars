@@ -33,16 +33,33 @@
                                 <!-- a div, id = "emoji-grid" -->
                                 <div id="emoji-grid"></div>
                             </div>
-        
+                            <hr class="my-4">
                         </div>
                     </div>
                 </div>
-
-
         </section>
+
+        <form action="/unregister" method="POST" class="m-3">
+            <div class="d-grid gap-2">
+                <button type="submit" class="btn btn-danger" type="button">Delete Account</button>
+            </div>
+        </form>
     {{/if}}
 
-    <section class="posts-list">
+    <section class="posts-list justify-content-center">
+        <section class="sort-bar">
+            <p class="lead m-3">Sort by: </p>
+            <div class="btn-group" role="group" aria-label="Sort posts by...">
+                <input type="radio" class="btn-check" name="newest_first" id="newest_first" autocomplete="off">
+                <a class="btn btn-outline-success" for="newest_first" href="/newestFirst">Newest First</a>
+
+                <input type="radio" class="btn-check" name="oldest_first" id="oldest_first" autocomplete="off">
+                <a class="btn btn-outline-success" for="oldest_first" href="/oldestFirst">Oldest First</a>
+
+                <input type="radio" class="btn-check" name="most_liked" id="most_liked" autocomplete="off">
+                <a class="btn btn-outline-success" for="most_liked" href="/mostLiked">Most Liked</a>
+            </div> 
+        </section>
         <!-- recent posts -->
         {{#if posts.length}}
         <ul>
@@ -51,21 +68,21 @@
                 {{> post this cur_user=../userName}}            
             {{/each}}
         </ul>
+
         {{else}}
             <!-- no posts, oh no, what now? -->
             <p>No posts found >:(</p>
             <p>Go touch some plants !!</p>
         {{/if}}
     </section>
+
+    <hr class="my-4">
 </section>
 
 
 {{! JavaScript for Emoji Integration }}
 <script>
-require('dotenv').config();
-console.log(process.env);
-const accesstok = process.env.EMOJI_API_KEY;
-
+const accesstok = "b824f398e1692ac28bdaa122b14912700265062d";
 
 /*
  You want to show a subset of the emojis. About 200. However,
@@ -101,7 +118,7 @@ function toggleEmojiPanel() {
 
 function displayEmojis(emojis,limit=200) {
     const container = document.getElementById('emoji-grid');
-    container.innerHTML = '';  // Clear previous results
+    container.innerHTML = '';  // Clear previous results 
     if (Array.isArray(emojis) && emojis.length > 0) {
         emojis.slice(0, limit).forEach(emoji => {
             const emojiElement = document.createElement('span');

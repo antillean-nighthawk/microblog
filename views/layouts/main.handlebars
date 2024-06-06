@@ -39,20 +39,19 @@
                     </div>
                 {{else}}
                     <li class="nav-item"><a class="nav-link" href="/">Home</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/login">Login/Register</a></li>
+                    <li class="nav-item"><a class="nav-link disabled" href="">||</a></li>
+                    <li><a href="/auth/google" class="nav-link">Login with Google</a></li>
                 {{/if}}
             </ul>
         </nav>
     </header>
     <br>
     
-    {{{body}}}
+    <main class="flex-shrink-0"> {{{body}}}  </main>
 
-    <footer>
-        <div class="navbar navbar-expand-lg bg-body-tertiary justify-content-center">
-            <div class="container-fluid">
-                <span class="navbar-text">© {{{copyrightYear}}} {{{appName}}}. All rights reserved.</span>
-            </div>
+    <footer class="footer bg-body-tertiary">
+        <div class="container text-center">
+            <span class="text-muted">© {{{copyrightYear}}} {{{appName}}}. All rights reserved.</span>
         </div>
     </footer>
 

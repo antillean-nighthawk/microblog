@@ -1,26 +1,20 @@
 {{! Use the main layout }}
 {{!< main }}
 
+<!---
 <script src="https://apis.google.com/js/platform.js" async defer></script>
+--->
 
-<div class="container-fluid row">
-    <section class="login-area w-50">
-        <div class="card">
-            <div class="card-header">Experienced PlantToucher?</div>
-            <h2 class="card-title m-3 text-center">(¯`’•.¸(¯`’•.¸*♫♪ Login ♫♪*¸.•’´¯)¸.• ‘´¯)</h2>
-            <a href="/auth/google" class="btn btn-primary btn-lg">Login with Google</a>
-        </div>
-    </section>
-
-    <section class="login-area w-50">
-        <div class="card">
+<div class="container justify-content-center row">
+    <section class="login-area w-75">
+        <div class="card m-3">
             <div class="card-header">New to PlantTouching?</div>
-            <h2 class="card-title m-3 text-center">•¤»((¯♥¯))«¤• Register •¤»((¯♥¯))«¤•</h2>
+            <h2 class="card-title m-3 p-2 text-center">•¤»((¯♥¯))«¤• Welcome, new planttoucher!! •¤»((¯♥¯))«¤•</h2>
             <!-- errors will appear here -->
             {{#if regError}}
-                <p class="p-3 mb-2 bg-danger text-white">{{regError}}</p>
+                <p class="p-3 mb-2 bg-danger text-white text-center">{{regError}}</p>
             {{/if}}
-            <form action="/register" method="POST" class="m-3">
+            <form action="/registerUsername" method="POST" class="m-3">
                 <!-- the registration form goes here -->
                 <div class="mb-3">
                     <label for="username" class="form-label">Username</label>
